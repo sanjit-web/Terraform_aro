@@ -1,0 +1,7 @@
+{
+  "github-actions.workflows.pinned.workflows": [],
+  "yaml.customTags": [
+    "!secret scalar"
+  ],
+  "yaml.validate": false
+}

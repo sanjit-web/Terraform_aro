@@ -1,0 +1,48 @@
+name: Create Dev Cluster
+
+# Auto-creates dev cluster weekdays at 8 AM UTC
+on:
+  schedule:
+    - cron: '0 8 * * 1-5'
+  workflow_dispatch:
+
+env:
+  TF_VERSION: '1.5.0'
+
+jobs:
+  create:
+    name: Create
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Init
+        run: terraform init
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+      - name: Apply
+        run: |
+          terraform apply -auto-approve \
+            -var-file="environments/dev/terraform.tfvars" \
+            -var="subscription_id=${{ secrets.ARM_SUBSCRIPTION_ID }}" \
+            -var="tenant_id=${{ secrets.ARM_TENANT_ID }}" \
+            -var="sp_client_id=${{ secrets.ARO_SP_CLIENT_ID }}" \
+            -var="sp_client_secret=${{ secrets.ARO_SP_CLIENT_SECRET }}"
+        env:
+          ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+          ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+          ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+          ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
+
+      - name: Show Outputs
+        run: terraform output
