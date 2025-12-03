@@ -1,264 +1,206 @@
-# Azure Red Hat OpenShift (ARO) - Terraform Infrastructure
+# Azure Red Hat OpenShift (ARO) Infrastructure
 
-A clean, production-ready Terraform configuration to deploy Azure Red Hat OpenShift with network segregation and infrastructure node pools.
+Production-ready Terraform configuration for deploying Azure Red Hat OpenShift clusters with multi-environment support and network segregation.
 
-## What This Does
+## 🏗️ Architecture
 
-This Terraform project automates the deployment of an ARO cluster with a specific workflow:
-
-1. **Creates the Network Foundation**
-   - A virtual network (VNet) for your ARO cluster
-   - One control plane subnet for ARO masters
-   - Multiple worker subnets for node segregation
-
-2. **Deploys the ARO Cluster**
-   - Provisions an Azure Red Hat OpenShift cluster
-   - Uses service principal authentication
-   - Connects to the control plane subnet
-
-3. **Sets Up Machine Pools**
-   - Creates a dedicated **infra machine pool** for infrastructure workloads (monitoring, logging, routing)
-   - Creates **worker machine pools** - one per worker subnet
-   - Each worker pool is isolated in its own subnet for network segregation
-
-4. **Optional Components**
-   - Storage account for container registry or backups
-   - DNS zone for custom domains
-   - Azure Front Door for global load balancing
-
-## Why Network Segregation?
-
-By creating one worker machine pool per subnet, you can:
-- Isolate workloads by network boundaries
-- Apply different network security rules per subnet
-- Control traffic flow between application tiers
-- Meet compliance requirements for network isolation
-
-## Quick Start
-
-### Prerequisites
-
-1. Azure subscription with sufficient quota for ARO
-2. Azure CLI installed and logged in
-3. Red Hat pull secret from https://cloud.redhat.com/openshift/install/azure/aro-provisioned
-4. Terraform 1.5+ installed
-
-### Step 1: Configure Your Variables
-
-```bash
-# Copy the example file
-cp terraform.tfvars.temp terraform.tfvars
-
-# Edit with your values
-nano terraform.tfvars
+```
+1. AVM Resource Groups     → Infrastructure and ARO cluster RGs
+2. AVM Virtual Network      → Control plane + Worker subnets with NSGs  
+3. ARO Cluster             → 3 master nodes + initial worker pool
+4. Infrastructure Nodes     → 3 dedicated nodes (tainted for system workloads)
+5. Worker Segregation       → Additional worker pools across subnets
 ```
 
-Fill in these required values:
-- `subscription_id` - Your Azure subscription ID
-- `tenant_id` - Your Azure AD tenant ID
-- `sp_client_id` - Service principal client ID
-- `sp_client_secret` - Service principal secret
-- `pull_secret_path` - Path to your Red Hat pull secret file
+## 🌍 Environments
 
-### Step 2: Save Your Pull Secret
+| Environment | API/Ingress | VM Sizes | Worker Subnets | Features |
+|-------------|-------------|----------|----------------|----------|
+| **Dev** | Public | D8s_v3/D4s_v3/D2s_v3 | 1 | Basic setup |
+| **Staging** | Private | D8s_v3/D4s_v3/D4s_v3 | 2 | Pre-prod testing |
+| **Production** | Private + FIPS | D16s_v3/D8s_v3/D8s_v3 | 3 | HA + encryption |
 
-Save your Red Hat pull secret to a file:
+## 📋 Prerequisites
+
+### 1. Azure Service Principals
+
+You need **two** service principals:
+
+#### **Terraform Service Principal** (for infrastructure deployment)
 ```bash
-echo 'your-pull-secret-content' > ~/.aro-pull-secret.txt
+az ad sp create-for-rbac --name "terraform-aro-sp" \\
+  --role="Contributor" \\
+  --scopes="/subscriptions/<SUBSCRIPTION_ID>"
 ```
 
-### Step 3: Initialize Terraform
+#### **ARO Service Principal** (for cluster management)
+```bash
+az ad sp create-for-rbac --name "aro-cluster-sp" \\
+  --role="Contributor" \\
+  --scopes="/subscriptions/<SUBSCRIPTION_ID>"
+
+# Grant additional permissions
+az role assignment create \\
+  --assignee <ARO_SP_APP_ID> \\
+  --role "User Access Administrator" \\
+  --scope /subscriptions/<SUBSCRIPTION_ID>
+```
+
+### 2. Red Hat Pull Secret
+
+Get your pull secret from: https://console.redhat.com/openshift/install/azure/aro-provisioned
+
+Save as `pull-secret.json` in the `aro-terraform/` directory.
+
+### 3. Azure Subscription
+
+- Active Azure subscription
+- Quota for Standard_D8s_v3 VMs (at least 24 cores)
+- Resource providers registered:
+  ```bash
+  az provider register -n Microsoft.RedHatOpenShift
+  az provider register -n Microsoft.Network
+  az provider register -n Microsoft.Storage
+  ```
+
+## 🚀 Quick Start
+
+### Local Deployment
 
 ```bash
+# Clone repository
+git clone https://github.com/sanjit-web/Terraform_aro.git
+cd Terraform_aro/aro-terraform
+
+# Initialize Terraform
 terraform init
+
+# Select environment and plan
+terraform plan -var-file="environments/dev/terraform.tfvars"
+
+# Deploy
+terraform apply -var-file="environments/dev/terraform.tfvars"
+
+# Get cluster credentials
+az aro list-credentials \\
+  --name aro-dev-eastus \\
+  --resource-group rg-aro-dev-eastus
 ```
 
-### Step 4: Review the Plan
+### GitHub Actions Deployment
 
-```bash
-terraform plan
+#### **Step 1: Configure Secrets**
+
+Go to **Settings → Secrets and variables → Actions** and add:
+
+```
+ARM_CLIENT_ID          = <terraform-sp-client-id>
+ARM_CLIENT_SECRET      = <terraform-sp-client-secret>
+ARM_SUBSCRIPTION_ID    = <azure-subscription-id>
+ARM_TENANT_ID          = <azure-tenant-id>
+
+ARO_SP_CLIENT_ID       = <aro-sp-client-id>
+ARO_SP_CLIENT_SECRET   = <aro-sp-client-secret>
+ARO_SP_OBJECT_ID       = <aro-sp-object-id>
+
+ARO_PULL_SECRET        = <red-hat-pull-secret-json>
 ```
 
-This shows you what will be created:
-- 1 virtual network
-- 1 control subnet + N worker subnets
-- 1 ARO cluster
-- 1 infra machine pool
-- N worker machine pools (one per worker subnet)
+#### **Step 2: Workflow Process**
 
-### Step 5: Deploy
+1. **Create Feature Branch** → Make changes
+2. **Push & Create PR** → `terraform-plan.yml` runs automatically
+3. **Review Plan** → Validates dev/stg/prod configurations
+4. **Merge to Main** → `terraform-apply.yml` deploys to dev
+5. **Manual Trigger** → Deploy stg/prod via Actions tab
 
-```bash
-terraform apply
+## 📁 Repository Structure
+
+```
+aro-terraform/
+├── .github/workflows/          # GitHub Actions CI/CD
+├── environments/               # Environment-specific configs
+│   ├── dev/
+│   ├── stg/
+│   └── prod/
+├── locals.tf                   # Environment logic
+├── variables.tf                # Input variables
+├── resources.tf                # Resource groups & identity
+├── networking.tf               # VNet, subnets, NSGs
+├── aro.tf                      # ARO cluster
+├── aroinfra.tf                 # Infrastructure + worker nodes
+├── outputs.tf                  # Output values
+├── data.tf                     # Data sources
+└── provider.tf                 # Provider configuration
 ```
 
-Type `yes` when prompted. The deployment takes about 30-45 minutes.
+## 🔧 Network Segregation
 
-## Connecting to Your Cluster
+Worker pools are isolated in dedicated subnets:
 
-After deployment completes, get your cluster credentials:
+- **worker-1**: Frontend tier (web apps, ingress)
+- **worker-2**: Backend tier (APIs, microservices)
+- **worker-3**: Data tier (databases, stateful services)
+
+Deploy workloads to specific tiers using node selectors:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+spec:
+  template:
+    spec:
+      nodeSelector:
+        subnet: worker-2  # Deploy to backend tier
+```
+
+## 💰 Cost Estimation
+
+| Environment | Monthly Cost (USD) | Components |
+|-------------|-------------------:|------------|
+| **Dev** | ~$400 | 3 masters + 2 workers + 2 infra |
+| **Staging** | ~$800 | 3 masters + 7 workers + 3 infra |
+| **Production** | ~$1,500 | 3 masters + 12 workers + 3 infra |
+
+## 🔒 Security
+
+### Network Security
+- NSGs configured on all subnets
+- Private API/Ingress for staging/production
+- Service endpoints for Azure services
+- ARO delegations on all subnets
+
+### Production Compliance
+- FIPS 140-2 enabled
+- Encryption at host enabled
+- Private endpoints
+- Azure Policy integration ready
+
+## 🐛 Troubleshooting
+
+### Access Cluster
 
 ```bash
-# Get the cluster details
-az aro list --resource-group <your-rg-name> --output table
+# List credentials
+az aro list-credentials --name <cluster-name> --resource-group <rg-name>
 
-# Get the kubeconfig
-az aro list-credentials --name <cluster-name> --resource-group <your-rg-name>
+# Get console URL
+az aro show --name <cluster-name> --resource-group <rg-name> --query "consoleProfile.url" -o tsv
 
-# Login to the cluster
+# Login with oc CLI
 oc login <api-server-url> --username kubeadmin --password <password>
 ```
 
-## Understanding the Architecture
+## 📚 Resources
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Virtual Network                         │
-│                                                               │
-│  ┌──────────────────┐                                        │
-│  │ Control Subnet   │  ← ARO Master Nodes                    │
-│  └──────────────────┘                                        │
-│                                                               │
-│  ┌──────────────────┐                                        │
-│  │ Worker Subnet 1  │  ← Worker Machine Pool 1               │
-│  └──────────────────┘                                        │
-│                                                               │
-│  ┌──────────────────┐                                        │
-│  │ Worker Subnet 2  │  ← Worker Machine Pool 2               │
-│  └──────────────────┘                                        │
-│                                                               │
-│  ┌──────────────────┐                                        │
-│  │ Worker Subnet N  │  ← Worker Machine Pool N               │
-│  └──────────────────┘                                        │
-│                                                               │
-│  ┌──────────────────┐                                        │
-│  │ Infra Pool       │  ← Infrastructure Workloads            │
-│  └──────────────────┘                                        │
-└─────────────────────────────────────────────────────────────┘
-```
+- [Azure Red Hat OpenShift Documentation](https://docs.microsoft.com/en-us/azure/openshift/)
+- [OpenShift Container Platform](https://docs.openshift.com/)
+- [Terraform Azure Provider](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs)
+- [Azure Verified Modules](https://aka.ms/avm)
 
-**Key Points:**
-- Each worker machine pool runs in its own subnet
-- Infra pool handles cluster services (router, registry, monitoring)
-- Worker pools handle your application workloads
-- Network policies can be applied per subnet for isolation
+---
 
-## Customizing Your Deployment
-
-### Add More Worker Subnets
-
-Edit `terraform.tfvars`:
-```hcl
-worker_subnet_prefixes = [
-  "10.0.2.0/24",
-  "10.0.3.0/24",
-  "10.0.4.0/24"  # Add more as needed
-]
-```
-
-Each subnet automatically gets its own worker machine pool.
-
-### Change Node Sizes
-
-```hcl
-worker_vm_size = "Standard_D8s_v3"  # Larger workers
-infra_vm_size  = "Standard_D4s_v3"  # Smaller infra nodes
-```
-
-### Adjust Node Counts
-
-```hcl
-worker_node_count = 5   # More workers per pool
-infra_node_count  = 2   # HA infra nodes
-```
-
-## Environment-Specific Deployments
-
-Use environment-specific variable files:
-
-```bash
-# Deploy to dev
-terraform apply -var-file="environments/dev/terraform.tfvars"
-
-# Deploy to prod
-terraform apply -var-file="environments/prod/terraform.tfvars"
-```
-
-## CI/CD with GitHub Actions
-
-This repo includes workflows for automation:
-
-1. **terraform-plan.yml** - Validates and plans on every PR
-2. **terraform-apply.yml** - Manual deployment trigger
-3. **scheduled-create.yml** - Auto-create dev cluster weekday mornings
-4. **scheduled-destroy.yml** - Auto-destroy dev cluster weekday evenings
-
-Set these secrets in your GitHub repository:
-- `ARM_CLIENT_ID`
-- `ARM_CLIENT_SECRET`
-- `ARM_SUBSCRIPTION_ID`
-- `ARM_TENANT_ID`
-- `ARO_PULL_SECRET`
-
-## Remote State (Recommended)
-
-For team collaboration, use remote state:
-
-1. Create an Azure Storage Account for state:
-```bash
-az group create --name terraform-state-rg --location eastus
-az storage account create --name tfstate$RANDOM --resource-group terraform-state-rg --sku Standard_LRS
-az storage container create --name tfstate --account-name <storage-account-name>
-```
-
-2. Copy `backend.tf.example` to `backend.tf` and fill in your values
-
-3. Initialize with the backend:
-```bash
-terraform init -backend-config="storage_account_name=<your-storage-account>"
-```
-
-## Cleanup
-
-To destroy all resources:
-
-```bash
-terraform destroy
-```
-
-**Warning:** This will delete your ARO cluster and all data. Make sure you've backed up anything important.
-
-## Troubleshooting
-
-### Issue: Pull secret error
-**Solution:** Verify your pull secret file exists and contains valid JSON from Red Hat.
-
-### Issue: Insufficient quota
-**Solution:** Request quota increase for Standard_D8s_v3 VMs in your Azure region.
-
-### Issue: Service principal permissions
-**Solution:** Ensure your SP has "Contributor" role on the subscription or resource group.
-
-### Issue: Subnet too small
-**Solution:** ARO requires /24 or larger subnets. Check your CIDR blocks in `terraform.tfvars`.
-
-## What Gets Created
-
-- **Resource Group:** 1
-- **Virtual Network:** 1 with multiple subnets
-- **ARO Cluster:** 1 (3 master nodes by default)
-- **Machine Pools:** 1 infra + N worker pools
-- **Storage Account:** 1 (optional)
-- **DNS Zone:** 1 (optional)
-- **Front Door:** 1 (optional)
-
-## Cost Estimation
-
-Approximate monthly costs (East US region):
-- ARO Cluster (masters): ~$650/month
-- Worker nodes (3x D8s_v3): ~$580/month per pool
-- Infra nodes (2x D4s_v3): ~$195/month
-- Networking: ~$50/month
-
-**Total:** ~$1,475-2,000/month depending on number of worker pools
+**Built with ❤️ using Terraform & Azure Verified Modules**
 

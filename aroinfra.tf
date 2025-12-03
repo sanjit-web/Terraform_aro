@@ -1,22 +1,10 @@
-# Resource Group using AVM
-module "rg_aro" {
-  source  = "Azure/avm-res-resources-resourcegroup/azurerm"
-  version = "~> 0.1"
-  
-  name     = var.resource_group_name
-  location = var.location
-  
-  tags = var.tags
-}
-
-# Infrastructure MachineSet using Kubernetes provider
-resource "kubernetes_manifest" "infra_machineset" {
+resource "kubernetes_manifest" "infra" {
   depends_on = [azurerm_redhat_openshift_cluster.main]
 
   manifest = {
     apiVersion = "machine.openshift.io/v1beta1"
     kind       = "MachineSet"
-    
+
     metadata = {
       name      = "${var.cluster_name}-infra-${var.location}"
       namespace = "openshift-machine-api"
@@ -26,17 +14,17 @@ resource "kubernetes_manifest" "infra_machineset" {
         "machine.openshift.io/cluster-api-machine-type" = "infra"
       }
     }
-    
+
     spec = {
-      replicas = var.infra_node_count
-      
+      replicas = local.current.infra_count
+
       selector = {
         matchLabels = {
           "machine.openshift.io/cluster-api-cluster"    = var.cluster_name
           "machine.openshift.io/cluster-api-machineset" = "${var.cluster_name}-infra-${var.location}"
         }
       }
-      
+
       template = {
         metadata = {
           labels = {
@@ -46,48 +34,47 @@ resource "kubernetes_manifest" "infra_machineset" {
             "machine.openshift.io/cluster-api-machineset"   = "${var.cluster_name}-infra-${var.location}"
           }
         }
-        
+
         spec = {
           metadata = {
             labels = {
               "node-role.kubernetes.io/infra" = ""
             }
           }
-          
-          taints = [
-            {
-              key    = "infra"
-              value  = "reserved"
-              effect = "NoSchedule"
-            }
-          ]
-          
+
+          taints = [{
+            key    = "infra"
+            value  = "reserved"
+            effect = "NoSchedule"
+          }]
+
           providerSpec = {
             value = {
               apiVersion = "machine.openshift.io/v1beta1"
               kind       = "AzureMachineProviderSpec"
-              
-              vmSize = var.infra_vm_size
-              
+              location   = var.location
+              vmSize     = local.current.infra_vm_size
+
               osDisk = {
-                osType = "Linux"
-                diskSizeGB = var.infra_disk_size_gb
+                osType     = "Linux"
+                diskSizeGB = local.current.infra_disk_gb
                 managedDisk = {
                   storageAccountType = "Premium_LRS"
                 }
               }
-              
-              publicIP             = false
-              subnet               = [for k, v in module.vnet.subnets : k if startswith(k, "worker-")][0]
-              vnet                 = var.vnet_name
-              resourceGroup        = var.resource_group_name
-              networkResourceGroup = var.resource_group_name
-              
+
+              publicIP = false
+              subnet   = local.worker_subnets["worker-1"].name
+
               credentialsSecret = {
                 name      = "azure-cloud-credentials"
                 namespace = "openshift-machine-api"
               }
-              
+
+              vnet                 = var.vnet_name
+              resourceGroup        = module.rg_aro.name
+              networkResourceGroup = module.resource_group.name
+
               image = {
                 publisher = "azureopenshift"
                 offer     = "aro4"
@@ -102,18 +89,17 @@ resource "kubernetes_manifest" "infra_machineset" {
   }
 }
 
-# Worker MachineSets (one per subnet)
-resource "kubernetes_manifest" "worker_machineset" {
-  for_each = { for k, v in module.vnet.subnets : k => v if startswith(k, "worker-") }
-  
+resource "kubernetes_manifest" "worker" {
+  for_each = { for k, v in local.worker_subnets : k => v if k != "worker-1" }
+
   depends_on = [azurerm_redhat_openshift_cluster.main]
 
   manifest = {
     apiVersion = "machine.openshift.io/v1beta1"
     kind       = "MachineSet"
-    
+
     metadata = {
-      name      = "${var.cluster_name}-worker-${split("-", each.key)[1]}"
+      name      = "${var.cluster_name}-${each.key}-${var.location}"
       namespace = "openshift-machine-api"
       labels = {
         "machine.openshift.io/cluster-api-cluster"      = var.cluster_name
@@ -121,60 +107,63 @@ resource "kubernetes_manifest" "worker_machineset" {
         "machine.openshift.io/cluster-api-machine-type" = "worker"
       }
     }
-    
+
     spec = {
-      replicas = var.worker_node_count_per_pool
-      
+      replicas = local.current.worker_count_per_pool
+
       selector = {
         matchLabels = {
           "machine.openshift.io/cluster-api-cluster"    = var.cluster_name
-          "machine.openshift.io/cluster-api-machineset" = "${var.cluster_name}-worker-${split("-", each.key)[1]}"
+          "machine.openshift.io/cluster-api-machineset" = "${var.cluster_name}-${each.key}-${var.location}"
         }
       }
-      
+
       template = {
         metadata = {
           labels = {
             "machine.openshift.io/cluster-api-cluster"      = var.cluster_name
             "machine.openshift.io/cluster-api-machine-role" = "worker"
             "machine.openshift.io/cluster-api-machine-type" = "worker"
-            "machine.openshift.io/cluster-api-machineset"   = "${var.cluster_name}-worker-${split("-", each.key)[1]}"
+            "machine.openshift.io/cluster-api-machineset"   = "${var.cluster_name}-${each.key}-${var.location}"
+            "subnet"                                        = each.key
           }
         }
-        
+
         spec = {
           metadata = {
             labels = {
               "node-role.kubernetes.io/worker" = ""
+              "subnet"                         = each.key
             }
           }
-          
+
           providerSpec = {
             value = {
               apiVersion = "machine.openshift.io/v1beta1"
               kind       = "AzureMachineProviderSpec"
-              
-              vmSize = var.worker_vm_size
-              
+              location   = var.location
+              vmSize     = local.current.worker_vm_size
+
               osDisk = {
-                osType = "Linux"
-                diskSizeGB = var.worker_disk_size_gb
+                osType     = "Linux"
+                diskSizeGB = local.current.worker_disk_gb
                 managedDisk = {
                   storageAccountType = "Premium_LRS"
                 }
               }
-              
-              publicIP             = false
-              subnet               = each.key
-              vnet                 = var.vnet_name
-              resourceGroup        = var.resource_group_name
-              networkResourceGroup = var.resource_group_name
-              
+
+              publicIP = false
+              subnet   = each.value.name
+
               credentialsSecret = {
                 name      = "azure-cloud-credentials"
                 namespace = "openshift-machine-api"
               }
-              
+
+              vnet                 = var.vnet_name
+              resourceGroup        = module.rg_aro.name
+              networkResourceGroup = module.resource_group.name
+
               image = {
                 publisher = "azureopenshift"
                 offer     = "aro4"

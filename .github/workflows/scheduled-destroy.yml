@@ -1,6 +1,5 @@
 name: Destroy Dev Cluster
 
-# Auto-destroys dev cluster weekdays at 6 PM UTC
 on:
   schedule:
     - cron: '0 18 * * 1-5'

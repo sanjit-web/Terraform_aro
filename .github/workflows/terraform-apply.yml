@@ -1,6 +1,5 @@
 name: Terraform Apply
 
-# Manual deployment to dev or prod environment
 on:
   workflow_dispatch:
     inputs:

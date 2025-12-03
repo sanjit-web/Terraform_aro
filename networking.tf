@@ -1,27 +1,26 @@
-# Virtual Network using AVM
-module "vnet_new" {
+module "vnet" {
   source  = "Azure/avm-res-network-virtualnetwork/azurerm"
   version = "~> 0.1"
 
-  name                = local.vnet_name
-  resource_group_name = module.resource_group.name
-  location            = var.location
+  name             = var.vnet_name
+  parent_id        = module.resource_group.resource_id
+  location         = var.location
+  enable_telemetry = true
 
-  address_space = [local.network.vnet_address_space]
+  address_space = [var.vnet_address_space]
 
   subnets = merge(
-    # Control Plane Subnet
     {
-      (local.network.control_subnet.name) = {
-        address_prefixes = [local.network.control_subnet.address_prefix]
+      (local.control_subnet.name) = {
+        address_prefixes = [local.control_subnet.prefix]
 
         service_endpoints = [
           "Microsoft.ContainerRegistry",
           "Microsoft.Storage"
         ]
 
-        delegation = [{
-          name = "aro-control-delegation"
+        delegations = [{
+          name = "aro-control"
           service_delegation = {
             name = "Microsoft.RedHatOpenShift/redhatopenshift"
             actions = [
@@ -32,20 +31,18 @@ module "vnet_new" {
         }]
       }
     },
-
-    # Worker Subnets
     {
-      for name, config in local.network.worker_subnets :
+      for name, config in local.worker_subnets :
       config.name => {
-        address_prefixes = [config.address_prefix]
+        address_prefixes = [config.prefix]
 
         service_endpoints = [
           "Microsoft.ContainerRegistry",
           "Microsoft.Storage"
         ]
 
-        delegation = [{
-          name = "aro-worker-delegation"
+        delegations = [{
+          name = "aro-worker"
           service_delegation = {
             name = "Microsoft.RedHatOpenShift/redhatopenshift"
             actions = [
@@ -58,14 +55,13 @@ module "vnet_new" {
     }
   )
 
-  tags = local.common_tags
+  tags = local.tags
 
   depends_on = [module.resource_group]
 }
 
-# Network Security Group for Control Subnet
 resource "azurerm_network_security_group" "control" {
-  name                = "nsg-aro-control-${local.env_prefix}"
+  name                = "nsg-control-${local.env}"
   location            = var.location
   resource_group_name = module.resource_group.name
 
@@ -81,14 +77,13 @@ resource "azurerm_network_security_group" "control" {
     destination_address_prefix = "*"
   }
 
-  tags = local.common_tags
+  tags = local.tags
 }
 
-# Network Security Group for Worker Subnets
 resource "azurerm_network_security_group" "worker" {
-  for_each = local.network.worker_subnets
+  for_each = local.worker_subnets
 
-  name                = "nsg-aro-${each.key}-${local.env_prefix}"
+  name                = "nsg-${each.key}-${local.env}"
   location            = var.location
   resource_group_name = module.resource_group.name
 
@@ -116,23 +111,21 @@ resource "azurerm_network_security_group" "worker" {
     destination_address_prefix = "*"
   }
 
-  tags = local.common_tags
+  tags = local.tags
 }
 
-# NSG Association - Control Subnet
 resource "azurerm_subnet_network_security_group_association" "control" {
-  subnet_id                 = module.vnet_new.subnets[local.network.control_subnet.name].resource_id
+  subnet_id                 = module.vnet.subnets[local.control_subnet.name].resource_id
   network_security_group_id = azurerm_network_security_group.control.id
 
-  depends_on = [module.vnet_new]
+  depends_on = [module.vnet]
 }
 
-# NSG Association - Worker Subnets
 resource "azurerm_subnet_network_security_group_association" "worker" {
-  for_each = local.network.worker_subnets
+  for_each = local.worker_subnets
 
-  subnet_id                 = module.vnet_new.subnets[each.value.name].resource_id
+  subnet_id                 = module.vnet.subnets[each.value.name].resource_id
   network_security_group_id = azurerm_network_security_group.worker[each.key].id
 
-  depends_on = [module.vnet_new]
+  depends_on = [module.vnet]
 }

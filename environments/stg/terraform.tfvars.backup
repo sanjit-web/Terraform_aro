@@ -1,0 +1,53 @@
+﻿# Staging Environment Configuration
+
+# Environment
+environment = "stg"
+
+# Azure Configuration
+subscription_id = "YOUR_SUBSCRIPTION_ID"
+tenant_id       = "YOUR_TENANT_ID"
+location        = "eastus"
+
+# Service Principal
+sp_client_id     = "YOUR_SP_CLIENT_ID"
+sp_client_secret = "YOUR_SP_CLIENT_SECRET"
+sp_object_id     = "YOUR_SP_OBJECT_ID"
+
+# Network Configuration
+vnet_address_space    = "10.20.0.0/16"
+control_subnet_prefix = "10.20.1.0/24"
+worker_subnet_prefixes = [
+  "10.20.2.0/24", # worker-1
+  "10.20.3.0/24", # worker-2
+  "10.20.4.0/24"  # worker-3
+]
+
+# ARO Configuration
+openshift_version = "4.12"
+pull_secret_path  = "~/.aro-pull-secret.json"
+domain            = "stg.example.com"
+
+# Pod and Service CIDR
+pod_cidr     = "10.128.0.0/14"
+service_cidr = "172.30.0.0/16"
+
+# Optional Components
+create_storage   = true
+create_dns_zone  = true
+create_frontdoor = false
+
+# Storage Configuration
+storage_account_name = "arostgsa"
+
+# DNS Configuration
+dns_zone_name = "stg.example.com"
+ingress_ip    = ""
+
+# Tags
+tags = {
+  Environment  = "Staging"
+  ManagedBy    = "Terraform"
+  CostCenter   = "Engineering"
+  Project      = "ARO-Staging"
+  AutoShutdown = "false"
+}

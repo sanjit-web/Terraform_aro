@@ -1,91 +1,68 @@
-# Example terraform.tfvars
-# Copy this file to terraform.tfvars and replace placeholders
-# NEVER commit terraform.tfvars to version control
-
-# Azure credentials - replace with your values
 subscription_id = "SUBSCRIPTION_ID"
 tenant_id       = "TENANT_ID"
 
-# Resource group and location
 resource_group_name = "aro-rg"
 location            = "eastus"
 
-# Network configuration
 vnet_name          = "aro-vnet"
 vnet_address_space = "10.0.0.0/16"
 
-# Control plane subnet
 control_subnet_prefix = "10.0.1.0/24"
 
-# Worker subnets - one machine pool will be created per subnet
 worker_subnet_prefixes = [
   "10.0.10.0/24",
   "10.0.11.0/24",
   "10.0.12.0/24"
 ]
 
-# ARO cluster configuration
 cluster_name      = "aro-cluster"
-domain            = "aro-domain-unique123"  # Must be globally unique
+domain            = "aro-domain-unique123"
 openshift_version = "4.12.25"
 
-# Path to Red Hat pull secret file
-# Download from https://console.redhat.com/openshift/install/pull-secret
-# Save to a file and reference here
 pull_secret_path = "./pull-secret.json"
 
-# VM sizes
 master_vm_size = "Standard_D8s_v3"
 worker_vm_size = "Standard_D4s_v3"
 
-# Node configuration
-worker_disk_size_gb       = 128
-worker_node_count         = 3
+worker_disk_size_gb        = 128
+worker_node_count          = 3
 worker_node_count_per_pool = 2
 
-# Infra node configuration
 infra_vm_size      = "Standard_D4s_v3"
 infra_disk_size_gb = 128
 infra_node_count   = 3
 
-# Service principal for ARO cluster - replace with your values
-# Create with: az ad sp create-for-rbac --name aro-sp --role Contributor
 sp_client_id     = "CLIENT_ID"
 sp_client_secret = "CLIENT_SECRET"
 
-# Visibility
 api_visibility     = "Public"
 ingress_visibility = "Public"
 
-# Tags
 tags = {
   Environment = "Development"
   Project     = "ARO"
   ManagedBy   = "Terraform"
 }
 
-# DNS Configuration (optional)
 create_dns_zone            = false
 dns_zone_name              = ""
 ingress_ip                 = ""
 domain_resource_group_name = ""
 
-# Front Door Configuration (optional)
-create_frontdoor     = false
-frontdoor_name       = ""
-backend_address      = ""
-backend_host_header  = ""
+create_frontdoor    = false
+frontdoor_name      = ""
+backend_address     = ""
+backend_host_header = ""
 
-# Storage Configuration (optional)
-create_storage              = false
-storage_account_name        = ""
-account_tier                = "Standard"
-replication_type            = "LRS"
-account_kind                = "StorageV2"
-enable_versioning           = false
-enable_change_feed          = false
-enable_private_endpoint     = false
-public_network_access       = true
-allowed_ip_ranges           = []
-allowed_subnet_ids          = []
-private_endpoint_subnet_id  = ""
+create_storage             = false
+storage_account_name       = ""
+account_tier               = "Standard"
+replication_type           = "LRS"
+account_kind               = "StorageV2"
+enable_versioning          = false
+enable_change_feed         = false
+enable_private_endpoint    = false
+public_network_access      = true
+allowed_ip_ranges          = []
+allowed_subnet_ids         = []
+private_endpoint_subnet_id = ""

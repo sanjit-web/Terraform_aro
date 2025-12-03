@@ -1,6 +1,5 @@
 name: Terraform Plan
 
-# Validates and plans infrastructure changes on pull requests
 on:
   pull_request:
     branches: [main, develop]
